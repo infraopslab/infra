@@ -1,0 +1,14 @@
+# .github/CODEOWNERS
+# Global: all files require infra-admins approval
+*                           @infraopslab/infra-admins
+
+# Prod environment: requires senior infra team
+environments/prod/          @infraopslab/infra-admins @infraopslab/infra-reviewers
+
+# IAM and security changes always require admin
+modules/iam-roles/          @infraopslab/infra-admins
+modules/kms/                @infraopslab/infra-admins
+.github/                    @infraopslab/infra-admins
+
+# Workflows require both admin and a second reviewer
+.github/workflows/          @infraopslab/infra-admins
