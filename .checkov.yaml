@@ -1,0 +1,39 @@
+# =========================
+# Checkov Production Config
+# =========================
+
+compact: true
+
+directory: "."
+
+framework:
+  - terraform
+
+output:
+  - cli
+  - sarif
+
+soft-fail: false
+
+# =========================
+# Severity control
+# =========================
+check:
+  - HIGH
+  - CRITICAL
+
+# =========================
+# Skip rules (must be justified)
+# =========================
+skip-check:
+  - CKV_AWS_79   # IMDSv2 handled in ASG launch template module
+  - CKV2_AWS_12  # Default SG allowed in isolated dev sandbox only
+
+# =========================
+# Exclude directories (best practice)
+# =========================
+skip-path:
+  - ".terraform"
+  - "modules/*/examples"
+  - "test"
+  - "examples"

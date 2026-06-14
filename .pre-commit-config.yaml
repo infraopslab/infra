@@ -1,0 +1,66 @@
+# .pre-commit-config.yaml
+
+repos:
+  # =========================
+  # Terraform (Core checks)
+  # =========================
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.106.0
+    hooks:
+      - id: terraform_fmt
+        args: [--args=-recursive]
+
+      - id: terraform_validate
+
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+          - --args=--minimum-failure-severity=error
+
+      - id: terraform_docs
+        args:
+          - --hook-config=--path-to-file=README.md
+          - --hook-config=--add-to-existing-file=true
+
+  # =========================
+  # Security scanning (modern)
+  # =========================
+
+  # - repo: https://github.com/mxab/pre-commit-trivy.git
+  #   rev: v0.18.0
+  #   hooks:
+  #     - id: trivyconfig-docker
+  #       args:
+  #         - --scanners
+  #         - config
+  #         - .
+
+
+  # =========================
+  # General code quality
+  # =========================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+      # Prevent accidental commits to protected branches
+      - id: no-commit-to-branch
+        args:
+          - --branch
+          - main
+          - --branch
+          - master
+
+  # =========================
+  # Secrets detection (important in production)
+  # =========================
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
