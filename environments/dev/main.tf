@@ -37,3 +37,5 @@ module "alb" {
   certificate_arn     = var.certificate_arn
   deletion_protection = false
 }
+
+# Triggering pipeline check.

@@ -85,16 +85,25 @@ jobs:
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
         with:
-          tflint_version: latest
-          cache: true
+          tflint_version: v0.52.0
 
       - name: Init TFLint
-        run: tflint --init --config=.tflint.hcl
+        run: tflint --init --config "${GITHUB_WORKSPACE}/.tflint.hcl"
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Debug TFLint
+        run: |
+          pwd
+          ls -la
+          echo "Workspace: $GITHUB_WORKSPACE"
+          ls -la $GITHUB_WORKSPACE
       - name: Run TFLint
-        run: tflint --recursive --config=.tflint.hcl --format=compact
+        run:
+          tflint \
+            --recursive \
+            --config "${GITHUB_WORKSPACE}/.tflint.hcl" \
+            --format compact
 
   checkov:
     name: "Checkov Security Scan"
