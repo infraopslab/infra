@@ -1,0 +1,149 @@
+# .github/workflows/ci.yml
+name: "CI - Terraform Quality Check"
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - test
+      - main
+    paths:
+      - "modules/**"
+      - "environments/**"
+      - ".tflint.hcl"
+      - ".checkov.yaml"
+
+# Cancel older runs if a developer pushes new commits to the same PR
+concurrency:
+  group: terraform-ci-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  terraform-fmt:
+    name: "Terraform Format"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Clone GitHub Repo
+        uses: actions/checkout@v4
+
+      - name: Terraform Installation
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ vars.TF_VERSION }}
+
+      - name: Check Formatting
+        run: terraform fmt -check -recursive
+
+  terraform-validate:
+    name: "Terraform Validate"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Clone GitHub Repo
+        uses: actions/checkout@v4
+
+      - name: Terraform Installation
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ vars.TF_VERSION }}
+
+      - name: Configure Terraform Plugin Cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          cat > ~/.terraformrc << 'EOF'
+          plugin_cache_dir="$HOME/.terraform.d/plugin-cache"
+          EOF
+
+      - name: Cache Terraform Providers
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: tf-ci-cache-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-ci-cache-${{ runner.os }}-
+
+      - name: Terraform Init (No Backend)
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+  tflint:
+    name: "TFlint Deep Scan"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Clone GitHub Repo
+        uses: actions/checkout@v4
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+          cache: true
+
+      - name: Init TFLint
+        run: tflint --init --config=.tflint.hcl
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Run TFLint
+        run: tflint --recursive --config=.tflint.hcl --format=compact
+
+  checkov:
+    name: "Checkov Security Scan"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Clone GitHub Repo
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          config_file: .checkov.yaml
+          output_format: sarif
+          soft_fail: false
+
+      - name: Upload SARIF to GitHub Security
+        if: always() && hashFiles('checkov-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+
+  infracost:
+    name: "Infra Cost Estimation"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Clone GitHub Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api_key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate Cost Diff
+        run: |
+          infracost diff \
+            --path . \
+            --format json \
+            --out-file infracost.json
+
+      - name: Post Cost Comment
+        uses: infracost/actions/comment@v3
+        with:
+          path: infracost.json
+          behavior: update

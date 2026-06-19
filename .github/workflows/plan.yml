@@ -1,0 +1,125 @@
+# .github/workflows/plan.yml
+name: "Terraform Plan"
+
+on:
+  workflow_run:
+    workflows: ["CI - Terraform Quality Check"]
+    types:
+      - completed
+
+# Cancel older plan operations if a newer pipeline triggers
+concurrency:
+  group: terraform-plan-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  plan:
+    name: "Terraform Plan - ${{ matrix.environment }}"
+    runs-on: ubuntu-latest
+
+    # CRITICAL SECURITY GUARD: Stop execution immediately if the CI validation failed
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Dynamically matches branch paths derived from the parent workflow execution event
+        environment:
+          >-
+          ${{ github.event.workflow_run.head_branch == 'main' && 'prod'
+           || github.event.workflow_run.head_branch == 'test' && 'test'
+           || github.event.workflow_run.head_branch == 'dev'  && 'dev'
+           || 'unknown' }}
+        include:
+          - environment: dev
+            aws_account_secret_name: AWS_DEV_ACCOUNT_ID # pragma: allowlist secret
+            environment_name: dev
+
+          - environment: test
+            aws_account_secret_name: AWS_TEST_ACCOUNT_ID # pragma: allowlist secret
+            environment_name: test
+
+          - environment: prod
+            aws_account_secret_name: AWS_PROD_ACCOUNT_ID # pragma: allowlist secret
+            environment_name: prod
+
+    # Drop out gracefully if someone manages to run this context against an unmapped scratch branch
+    environment: ${{ matrix.environment_name }}
+
+    steps:
+      # Clone the exact code state that triggered the parent validation run
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure Terraform Plugin Cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          cat > ~/.terraformrc << 'EOF'
+          plugin_cache_dir="$HOME/.terraform.d/plugin-cache"
+          EOF
+
+      - name: Cache Terraform Providers
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: tf-plan-cache-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-plan-cache-${{ runner.os }}-
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ vars.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets[matrix.aws_account_secret_name] }}:role/GitHubActionsDeployRole
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: tf-plan-${{ matrix.environment }}-${{ github.run_id }}
+
+      - name: Terraform Init
+        working-directory: environments/${{ matrix.environment }}
+        run: terraform init -input=false
+
+      # Executing the live infrastructure deployment verification blueprint
+      - name: Terraform Plan
+        id: terraform_plan
+        shell: bash
+        working-directory: environments/${{ matrix.environment }}
+        run: |
+          set +e
+
+          terraform plan \
+            -var-file=terraform.tfvars \
+            -out=${{ matrix.environment }}.tfplan \
+            -detailed-exitcode \
+            -input=false \
+            2>&1 | tee plan-output.txt
+
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=${PLAN_EXIT_CODE}" >> "$GITHUB_OUTPUT"
+
+          if [ "$PLAN_EXIT_CODE" -eq 1 ]; then
+            echo "::error::Terraform execution structural planning failed!"
+            exit 1
+          fi
+
+      - name: Upload Safe Infrastructure Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.environment }}-${{ github.event.workflow_run.head_sha }}
+          path: |
+            environments/${{ matrix.environment }}/${{ matrix.environment }}.tfplan
+            environments/${{ matrix.environment }}/plan-output.txt
+          retention-days: 7
+          if-no-files-found: error
