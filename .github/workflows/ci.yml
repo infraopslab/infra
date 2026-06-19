@@ -85,8 +85,7 @@ jobs:
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
         with:
-          tflint_version: latest
-          cache: true
+          tflint_version: v0.52.0
 
       - name: Init TFLint
         run: tflint --init --config "${GITHUB_WORKSPACE}/.tflint.hcl"
